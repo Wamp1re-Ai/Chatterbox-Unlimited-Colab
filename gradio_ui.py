@@ -294,8 +294,8 @@ class ChatterBoxTTSUI:
                         inputs=[text_input],
                         label="Example Texts"
                     )
-                
-                        with gr.Column(scale=1):
+
+                    with gr.Column(scale=1):
                             gr.Markdown("## 🎛️ Controls")
 
                             # Emotion/Style Presets
