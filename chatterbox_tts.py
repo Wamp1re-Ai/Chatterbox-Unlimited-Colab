@@ -1,5 +1,6 @@
 """
 ChatterBox TTS - ResembleAI Text-to-Speech Model Interface
+Enhanced with audio post-processing, emotion presets, and batch processing
 """
 import os
 import tempfile
@@ -10,6 +11,17 @@ import warnings
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore")
+
+# Import new enhancement modules
+try:
+    from audio_processor import audio_processor
+    from emotion_presets import emotion_presets
+    from text_processor import text_processor
+    ENHANCEMENTS_AVAILABLE = True
+    print("✅ Enhancement modules loaded")
+except ImportError as e:
+    print(f"Warning: Enhancement modules not available: {e}")
+    ENHANCEMENTS_AVAILABLE = False
 
 try:
     import torch
@@ -77,33 +89,58 @@ class ChatterBoxTTSInterface:
             return False
     
     def generate_speech(
-        self, 
-        text: str, 
+        self,
+        text: str,
         audio_prompt_path: Optional[str] = None,
         exaggeration: float = 0.5,
         cfg_weight: float = 0.5,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        preset: Optional[str] = None,
+        enable_text_processing: bool = True,
+        enable_audio_enhancement: bool = False,
+        noise_reduction: float = 0.3,
+        eq_preset: str = "vocal"
     ) -> Tuple[Optional[str], str]:
         """
-        Generate speech from text using ChatterBox TTS
-        
+        Generate speech from text using ChatterBox TTS with enhancements
+
         Args:
             text: Text to synthesize
             audio_prompt_path: Path to reference audio for voice cloning
             exaggeration: Emotion exaggeration level (0.0 to 1.0)
             cfg_weight: CFG weight for generation control (0.0 to 1.0)
             seed: Random seed for reproducible generation
-            
+            preset: Emotion/style preset to apply
+            enable_text_processing: Whether to apply text preprocessing
+            enable_audio_enhancement: Whether to apply audio post-processing
+            noise_reduction: Noise reduction strength (0.0 to 1.0)
+            eq_preset: EQ preset for audio enhancement
+
         Returns:
             Tuple of (audio_file_path, status_message)
         """
         if not self.model:
             return None, "❌ Model not loaded. Please load the model first."
-        
+
         if not text.strip():
             return None, "❌ Please enter some text to synthesize."
-        
+
         try:
+            # Apply emotion/style preset if specified
+            if preset and ENHANCEMENTS_AVAILABLE:
+                preset_exaggeration, preset_cfg_weight = emotion_presets.get_preset_parameters(preset)
+                exaggeration = preset_exaggeration
+                cfg_weight = preset_cfg_weight
+                print(f"🎭 Applied preset '{preset}': exaggeration={exaggeration:.1f}, cfg_weight={cfg_weight:.1f}")
+
+            # Apply text processing if enabled
+            processed_text = text
+            if enable_text_processing and ENHANCEMENTS_AVAILABLE:
+                processed_text = text_processor.process_text(text)
+                if processed_text != text:
+                    print(f"📝 Text processed: '{text[:30]}...' → '{processed_text[:30]}...'")
+            else:
+                processed_text = text
             # Set seed for reproducible generation
             if seed is not None and TTS_AVAILABLE:
                 torch.manual_seed(seed)
@@ -111,20 +148,20 @@ class ChatterBoxTTSInterface:
                     torch.cuda.manual_seed(seed)
                 np.random.seed(seed)
             
-            print(f"🎵 Generating speech for: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-            
+            print(f"🎵 Generating speech for: '{processed_text[:50]}{'...' if len(processed_text) > 50 else ''}'")
+
             # Generate audio
             if audio_prompt_path and os.path.exists(audio_prompt_path):
                 print(f"🎤 Using voice reference: {audio_prompt_path}")
                 wav = self.model.generate(
-                    text, 
+                    processed_text,
                     audio_prompt_path=audio_prompt_path,
                     exaggeration=exaggeration,
                     cfg_weight=cfg_weight
                 )
             else:
                 wav = self.model.generate(
-                    text,
+                    processed_text,
                     exaggeration=exaggeration,
                     cfg_weight=cfg_weight
                 )
@@ -145,14 +182,41 @@ class ChatterBoxTTSInterface:
             
             # Save audio file
             sf.write(output_path, wav_np, self.sample_rate)
-            
+
+            # Apply audio enhancement if enabled
+            final_output_path = output_path
+            enhancement_info = ""
+
+            if enable_audio_enhancement and ENHANCEMENTS_AVAILABLE:
+                print("🎚️ Applying audio enhancement...")
+                enhanced_path, enhancement_msg = audio_processor.enhance_audio(
+                    output_path,
+                    noise_reduction=noise_reduction,
+                    normalize=True,
+                    target_db=-20.0,
+                    eq_preset=eq_preset,
+                    output_format="wav"
+                )
+
+                if enhanced_path:
+                    final_output_path = enhanced_path
+                    enhancement_info = f" + Enhanced with {eq_preset} EQ"
+                    # Clean up original file
+                    try:
+                        os.unlink(output_path)
+                    except:
+                        pass
+
             duration = len(wav_np) / self.sample_rate
             status = f"✅ Generated {duration:.2f}s of audio"
-            
+
             if audio_prompt_path:
                 status += f" (voice cloned from reference)"
-            
-            return output_path, status
+
+            if enhancement_info:
+                status += enhancement_info
+
+            return final_output_path, status
             
         except Exception as e:
             error_msg = f"❌ Error generating speech: {str(e)}"
