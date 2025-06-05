@@ -139,10 +139,46 @@ Options:
 
 ## 🐛 Troubleshooting
 
-1. **"Model not found"**: Run `python install_dependencies.py`
-2. **CUDA errors**: Install compatible PyTorch version
-3. **Memory errors**: Try CPU mode or close other applications
-4. **Audio issues**: Check file format and quality
+### Common Issues
+
+1. **CUDA Version Conflicts** (Colab):
+   ```
+   RuntimeError: PyTorch and torchvision compiled with different CUDA versions
+   ```
+   **Solution**: Restart runtime and re-run all cells. The notebook now uses compatible versions.
+
+2. **Dependency Conflicts**:
+   ```
+   ERROR: pip's dependency resolver conflicts
+   ```
+   **Solution**: Use the UV setup script:
+   ```bash
+   python setup_uv.py
+   ```
+
+3. **Model Loading Fails**:
+   ```
+   Failed to load ChatterBox TTS model
+   ```
+   **Solution**:
+   - Ensure GPU has enough memory (4GB+ recommended)
+   - Try CPU mode if GPU fails
+   - Restart Python kernel/runtime
+
+4. **Import Errors**:
+   ```
+   ImportError: cannot import ChatterboxTTS
+   ```
+   **Solution**: Install from GitHub:
+   ```bash
+   pip install git+https://github.com/resemble-ai/chatterbox.git
+   ```
+
+### Performance Tips
+
+- **Colab**: Use GPU runtime for 10x faster generation
+- **Local**: NVIDIA GPUs with 4GB+ VRAM work best
+- **Memory**: Close other applications if running locally
 
 ## 🔗 Links
 

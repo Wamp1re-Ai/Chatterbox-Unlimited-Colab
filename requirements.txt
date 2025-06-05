@@ -1,7 +1,26 @@
+# Core dependencies
 gradio>=4.0.0
 chatterbox-tts
-torch
-torchaudio
-numpy
-librosa
-soundfile
+
+# PyTorch (install with appropriate CUDA version)
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Audio processing
+numpy>=1.24.0,<2.0.0
+librosa>=0.10.0
+soundfile>=0.12.1
+resampy>=0.4.0
+
+# ML dependencies
+transformers>=4.40.0
+diffusers>=0.25.0
+omegaconf>=2.3.0
+conformer>=0.3.0
+
+# ResembleAI specific
+resemble-perth>=1.0.0
+s3tokenizer>=0.1.0
+
+# Optional: UV for faster installs
+uv
