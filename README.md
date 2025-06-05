@@ -3,6 +3,9 @@
 A powerful Gradio web interface for **ResembleAI's ChatterBox TTS** with Google Colab support. Generate unlimited high-quality speech with voice cloning capabilities!
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Wamp1re-Ai/Chatterbox-Unlimited-Colab/blob/main/ChatterBox_Unlimited_Colab.ipynb)
+[![GitHub Stars](https://img.shields.io/github/stars/Wamp1re-Ai/Chatterbox-Unlimited-Colab?style=social)](https://github.com/Wamp1re-Ai/Chatterbox-Unlimited-Colab)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://python.org)
 
 ## ✨ Features
 
