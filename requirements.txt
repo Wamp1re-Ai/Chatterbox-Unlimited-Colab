@@ -12,8 +12,9 @@ librosa>=0.10.0
 soundfile>=0.12.1
 resampy>=0.4.0
 
-# ML dependencies
-transformers>=4.40.0
+# ML dependencies (fixed versions for compatibility)
+transformers>=4.44.0
+accelerate>=0.21.0
 diffusers>=0.25.0
 omegaconf>=2.3.0
 conformer>=0.3.0
