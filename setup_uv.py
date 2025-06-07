@@ -43,7 +43,8 @@ def main():
     # Fix CUDA conflicts in Colab
     if IN_COLAB:
         print("\n🔧 Fixing CUDA version conflicts...")
-        run_command("uv pip install torch==2.4.0 torchaudio==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu121", "Installing compatible PyTorch")
+        run_command("uv pip uninstall -y torch torchvision torchaudio", "Uninstalling existing PyTorch components")
+        run_command("uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121", "Installing compatible PyTorch, Torchvision, Torchaudio")
         run_command("uv pip install \"numpy>=1.24.0,<2.0.0\"", "Installing compatible NumPy")
     else:
         print("\n🔥 Installing PyTorch with UV...")
@@ -79,6 +80,9 @@ def main():
         "resemble-perth",
         "s3tokenizer"
     ]
+    # Ensure torchvision is installed if not handled by the specific Colab command
+    if not IN_COLAB:
+        deps.append("torchvision")
     
     for dep in deps:
         run_command(f"uv pip install {dep}", f"Installing {dep}")
