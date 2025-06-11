@@ -7,9 +7,46 @@ import numpy as np
 import soundfile as sf
 from typing import Optional, Tuple
 import warnings
+import threading
+import time
+from functools import wraps
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore")
+
+class TimeoutError(Exception):
+    """Custom timeout exception"""
+    pass
+
+def with_timeout(timeout_seconds):
+    """Decorator to add timeout to any function"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            result = [None]
+            exception = [None]
+
+            def target():
+                try:
+                    result[0] = func(*args, **kwargs)
+                except Exception as e:
+                    exception[0] = e
+
+            thread = threading.Thread(target=target)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout_seconds)
+
+            if thread.is_alive():
+                print(f"⏰ Operation timed out after {timeout_seconds} seconds")
+                raise TimeoutError(f"Operation timed out after {timeout_seconds} seconds")
+
+            if exception[0]:
+                raise exception[0]
+
+            return result[0]
+        return wrapper
+    return decorator
 
 try:
     import torch
@@ -113,21 +150,26 @@ class ChatterBoxTTSInterface:
             
             print(f"🎵 Generating speech for: '{text[:50]}{'...' if len(text) > 50 else ''}'")
             
-            # Generate audio
-            if audio_prompt_path and os.path.exists(audio_prompt_path):
-                print(f"🎤 Using voice reference: {audio_prompt_path}")
-                wav = self.model.generate(
-                    text, 
-                    audio_prompt_path=audio_prompt_path,
-                    exaggeration=exaggeration,
-                    cfg_weight=cfg_weight
-                )
-            else:
-                wav = self.model.generate(
-                    text,
-                    exaggeration=exaggeration,
-                    cfg_weight=cfg_weight
-                )
+            # Generate audio with timeout protection
+            @with_timeout(60)  # 60 second timeout
+            def generate_with_timeout():
+                if audio_prompt_path and os.path.exists(audio_prompt_path):
+                    print(f"🎤 Using voice reference: {audio_prompt_path} (timeout: 60s)")
+                    return self.model.generate(
+                        text,
+                        audio_prompt_path=audio_prompt_path,
+                        exaggeration=exaggeration,
+                        cfg_weight=cfg_weight
+                    )
+                else:
+                    print(f"🎯 Generating standard TTS (timeout: 60s)")
+                    return self.model.generate(
+                        text,
+                        exaggeration=exaggeration,
+                        cfg_weight=cfg_weight
+                    )
+
+            wav = generate_with_timeout()
             
             # Save to temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
@@ -154,6 +196,11 @@ class ChatterBoxTTSInterface:
             
             return output_path, status
             
+        except TimeoutError as e:
+            error_msg = f"⏰ Speech generation timed out: {str(e)}"
+            print(error_msg)
+            print("💡 Try with shorter text or simpler parameters")
+            return None, error_msg
         except Exception as e:
             error_msg = f"❌ Error generating speech: {str(e)}"
             print(error_msg)

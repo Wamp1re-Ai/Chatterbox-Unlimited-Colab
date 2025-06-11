@@ -2,6 +2,7 @@
 """
 CUDA Error Fix for ChatterBox TTS
 Quick script to resolve "CUDA error: device-side assert triggered" issues
+Enhanced with timeout controls and voice cloning fixes
 """
 
 import os
@@ -11,6 +12,63 @@ import tempfile
 import librosa
 import soundfile as sf
 import numpy as np
+import threading
+import time
+import signal
+from functools import wraps
+
+class TimeoutError(Exception):
+    """Custom timeout exception"""
+    pass
+
+def timeout_handler(signum, frame):
+    """Signal handler for timeout"""
+    raise TimeoutError("Operation timed out")
+
+def with_timeout(timeout_seconds):
+    """Decorator to add timeout to any function"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # For Windows compatibility, use threading instead of signal
+            if os.name == 'nt':
+                result = [None]
+                exception = [None]
+
+                def target():
+                    try:
+                        result[0] = func(*args, **kwargs)
+                    except Exception as e:
+                        exception[0] = e
+
+                thread = threading.Thread(target=target)
+                thread.daemon = True
+                thread.start()
+                thread.join(timeout_seconds)
+
+                if thread.is_alive():
+                    print(f"⏰ Function timed out after {timeout_seconds} seconds")
+                    raise TimeoutError(f"Function timed out after {timeout_seconds} seconds")
+
+                if exception[0]:
+                    raise exception[0]
+
+                return result[0]
+            else:
+                # Unix systems can use signal
+                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(timeout_seconds)
+                try:
+                    result = func(*args, **kwargs)
+                    signal.alarm(0)
+                    return result
+                except TimeoutError:
+                    print(f"⏰ Function timed out after {timeout_seconds} seconds")
+                    raise
+                finally:
+                    signal.signal(signal.SIGALRM, old_handler)
+        return wrapper
+    return decorator
 
 def clear_cuda_cache():
     """Clear CUDA cache and synchronize"""
@@ -84,31 +142,61 @@ def preprocess_audio_safe(audio_path, output_path=None):
         print(f"❌ Audio processing failed: {e}")
         return None
 
-def safe_generate_speech(model, text, audio_prompt_path=None, **kwargs):
+@with_timeout(60)  # 60 second timeout for individual generation
+def safe_generate_speech_with_timeout(model, text, audio_prompt_path=None, **kwargs):
     """
-    Generate speech with CUDA error prevention
-    
+    Generate speech with timeout protection
+
     Args:
         model: ChatterBox TTS model
         text: Text to synthesize
         audio_prompt_path: Optional audio for voice cloning
         **kwargs: Additional generation parameters
-    
+
+    Returns:
+        torch.Tensor: Generated audio waveform
+    """
+    if audio_prompt_path and os.path.exists(audio_prompt_path):
+        print(f"🎭 Generating with voice cloning (timeout: 60s)")
+        return model.generate(
+            text,
+            audio_prompt_path=audio_prompt_path,
+            exaggeration=kwargs.get('exaggeration', 0.5),
+            cfg_weight=kwargs.get('cfg_weight', 0.5)
+        )
+    else:
+        print(f"🎯 Generating standard TTS (timeout: 60s)")
+        return model.generate(
+            text,
+            exaggeration=kwargs.get('exaggeration', 0.5),
+            cfg_weight=kwargs.get('cfg_weight', 0.5)
+        )
+
+def safe_generate_speech(model, text, audio_prompt_path=None, **kwargs):
+    """
+    Generate speech with CUDA error prevention and timeout
+
+    Args:
+        model: ChatterBox TTS model
+        text: Text to synthesize
+        audio_prompt_path: Optional audio for voice cloning
+        **kwargs: Additional generation parameters
+
     Returns:
         torch.Tensor: Generated audio waveform
     """
     # Set CUDA debugging
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-    
+
     try:
         # Clear cache before generation
         clear_cuda_cache()
-        
+
         # Limit text length
         if len(text) > 500:
             text = text[:500]
             print(f"⚠️ Text truncated to 500 characters")
-        
+
         # Set safe default parameters
         safe_params = {
             'exaggeration': kwargs.get('exaggeration', 0.5),
@@ -121,34 +209,39 @@ def safe_generate_speech(model, text, audio_prompt_path=None, **kwargs):
             try:
                 print(f"🎤 Generation attempt {attempt + 1}/{max_retries}")
                 
-                if audio_prompt_path:
-                    wav = model.generate(text, audio_prompt_path=audio_prompt_path, **safe_params)
-                else:
-                    wav = model.generate(text, **safe_params)
+                # Use timeout-protected generation
+                wav = safe_generate_speech_with_timeout(
+                    model, text, audio_prompt_path, **safe_params
+                )
                 
                 print("✅ Generation successful!")
                 return wav
                 
-            except RuntimeError as e:
-                if "CUDA" in str(e) or "assert" in str(e):
+            except (RuntimeError, TimeoutError) as e:
+                if isinstance(e, TimeoutError):
+                    print(f"⏰ Timeout on attempt {attempt + 1}: {str(e)}")
+                elif "CUDA" in str(e) or "assert" in str(e):
                     print(f"⚠️ CUDA error on attempt {attempt + 1}: {str(e)[:100]}...")
-                    
-                    # Clear cache and adjust parameters
-                    clear_cuda_cache()
-                    
-                    # Reduce text length
-                    if len(text) > 50:
-                        text = text[:len(text)//2]
-                        print(f"🔄 Reduced text to {len(text)} characters")
-                    
-                    # Make parameters more conservative
-                    safe_params['exaggeration'] = min(safe_params['exaggeration'], 0.3)
-                    safe_params['cfg_weight'] = min(safe_params['cfg_weight'], 0.5)
-                    print(f"🔧 Adjusted parameters: {safe_params}")
-                    
-                    if attempt < max_retries - 1:
-                        continue
-                
+                else:
+                    print(f"❌ Error on attempt {attempt + 1}: {str(e)[:100]}...")
+
+                # Clear cache and adjust parameters
+                clear_cuda_cache()
+
+                # Reduce text length
+                if len(text) > 50:
+                    text = text[:len(text)//2]
+                    print(f"🔄 Reduced text to {len(text)} characters")
+
+                # Make parameters more conservative
+                safe_params['exaggeration'] = min(safe_params['exaggeration'], 0.3)
+                safe_params['cfg_weight'] = min(safe_params['cfg_weight'], 0.5)
+                print(f"🔧 Adjusted parameters: {safe_params}")
+
+                if attempt < max_retries - 1:
+                    print(f"🔄 Retrying with adjusted parameters...")
+                    continue
+
                 raise e
         
     finally:
